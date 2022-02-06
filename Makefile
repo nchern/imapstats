@@ -1,6 +1,6 @@
 .PHONY: build
 build: vet
-	go build ./...
+	go build -o bin/imapstats ./...
 
 .PHONY: install
 install: test
