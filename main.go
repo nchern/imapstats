@@ -40,7 +40,6 @@ type stats struct {
 func init() {
 	log.SetFlags(0)
 	flag.Parse()
-
 	must(initPaths())
 }
 
@@ -60,7 +59,21 @@ func initPaths() error {
 	return nil
 }
 
-func fetchStats(c *client.Client) (*stats, error) {
+func fetchStats() (*stats, error) {
+	c, err := client.DialTLS(*addrArg, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Logout()
+
+	if err := c.Login(*userArg, *passwordArg); err != nil {
+		return nil, err
+	}
+
+	if _, err = c.Select(*mboxArg, false); err != nil {
+		return nil, err
+	}
+
 	criteria := imap.NewSearchCriteria()
 	criteria.WithoutFlags = []string{imap.SeenFlag}
 	ids, err := c.Search(criteria)
@@ -75,25 +88,8 @@ func main() {
 		must(readFromCache())
 		return
 	}
-	// Connect to server
-	c, err := client.DialTLS(*addrArg, nil)
-	dieIf(err)
-	log.Println("Connected")
 
-	// Don't forget to logout
-	defer c.Logout()
-
-	// Login
-	password, err := getPassword()
-	dieIf(err)
-
-	must(c.Login(*userArg, password))
-	log.Println("Logged in")
-
-	_, err = c.Select(*mboxArg, false)
-	dieIf(err)
-
-	st, err := fetchStats(c)
+	st, err := fetchStats()
 	dieIf(err)
 
 	must(writeStats(st))
@@ -126,10 +122,6 @@ func writeStats(st *stats) error {
 
 func cacheFilename() string {
 	return filepath.Join(cacheDir, *userArg+"."+*mboxArg)
-}
-
-func getPassword() (string, error) {
-	return *passwordArg, nil
 }
 
 func dieIf(err error) {
