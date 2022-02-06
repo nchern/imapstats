@@ -31,6 +31,8 @@ var (
 
 	mboxArg = flag.String("mailbox", "INBOX", "mailbox on the server")
 
+	quietArg = flag.Bool("q", false, "If set, does not output stats on stdin. Can be used in background jobs to update cache")
+
 	writeCacheArg = flag.Bool("write-cache", false, "if true writes to cache")
 	readCacheArg  = flag.Bool("read-cache", false, "if true reads from cache")
 	ttlArg        = flag.String(
@@ -135,7 +137,11 @@ func writeStats(st *stats) error {
 			return err
 		}
 		defer f.Close()
-		w = io.MultiWriter(w, f)
+		if *quietArg {
+			w = f
+		} else {
+			w = io.MultiWriter(w, f)
+		}
 	}
 	return json.NewEncoder(w).Encode(st)
 }
