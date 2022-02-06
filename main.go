@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -16,6 +19,8 @@ const (
 	appName = "imapstats"
 
 	defaultDirPerms = 0700
+
+	ttlInfinite time.Duration = -1
 )
 
 var (
@@ -28,6 +33,10 @@ var (
 
 	writeCacheArg = flag.Bool("write-cache", false, "if true writes to cache")
 	readCacheArg  = flag.Bool("read-cache", false, "if true reads from cache")
+	ttlArg        = flag.String(
+		"ttl",
+		"",
+		"sets cache ttl. By default no ttl is set. Default unit is seconds, hours and minues are also supported e.g. 2h; 35m")
 
 	appHomeDir string
 	cacheDir   string
@@ -40,6 +49,7 @@ type stats struct {
 func init() {
 	log.SetFlags(0)
 	flag.Parse()
+
 	must(initPaths())
 }
 
@@ -96,11 +106,21 @@ func main() {
 }
 
 func readFromCache() error {
-	f, err := os.Open(cacheFilename())
+	filename := cacheFilename()
+	info, err := os.Stat(filename)
 	if err != nil {
 		return err
 	}
+	age := time.Now().Sub(info.ModTime())
+	if cacheTTL() != ttlInfinite && age > cacheTTL() {
+		// TODO: the error message can be confusing
+		return fmt.Errorf("%w: too old: %s", os.ErrNotExist, filename)
+	}
 
+	f, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
 	defer f.Close()
 
 	_, err = io.Copy(os.Stdout, f)
@@ -126,10 +146,37 @@ func cacheFilename() string {
 
 func dieIf(err error) {
 	if err != nil {
-		log.Fatal("fatal:", err)
+		log.Fatal("fatal: ", err)
 	}
 }
 
 func must(err error) {
 	dieIf(err)
+}
+
+func cacheTTL() time.Duration {
+	units := map[byte]time.Duration{
+		's': time.Second,
+		'm': time.Minute,
+		'h': time.Hour,
+	}
+	val := *ttlArg
+	if val == "" {
+		return ttlInfinite
+	}
+	l := len(val)
+	unit := time.Second
+	for k, v := range units {
+		if val[l-1] == k {
+			unit = v
+			val = val[0 : l-1]
+			break
+		}
+	}
+	ttl, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return ttlInfinite
+	}
+
+	return time.Duration(ttl) * unit
 }
