@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap"
@@ -72,13 +74,17 @@ func initPaths() error {
 }
 
 func fetchStats() (*stats, error) {
+	passwd, err := readPassword()
+	if err != nil {
+		return nil, err
+	}
 	c, err := client.DialTLS(*addrArg, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer c.Logout()
 
-	if err := c.Login(*userArg, *passwordArg); err != nil {
+	if err := c.Login(*userArg, passwd); err != nil {
 		return nil, err
 	}
 
@@ -105,6 +111,15 @@ func main() {
 	dieIf(err)
 
 	must(writeStats(st))
+}
+
+func readPassword() (string, error) {
+	b, err := ioutil.ReadFile(*passwordArg)
+	if err != nil {
+		return "", err
+	}
+	res := strings.TrimSpace(string(b))
+	return res, nil
 }
 
 func readFromCache() error {
