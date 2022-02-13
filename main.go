@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,6 +24,8 @@ const (
 	defaultDirPerms = 0700
 
 	ttlInfinite time.Duration = -1
+
+	imapTimeout = 10 * time.Second
 )
 
 var (
@@ -57,6 +60,27 @@ func init() {
 	must(initPaths())
 }
 
+func dieOnNetworkTimeout(v ...interface{}) {
+	for _, it := range v {
+		err, ok := it.(*net.OpError)
+		if ok && err.Timeout() {
+			dieIf(err)
+		}
+	}
+}
+
+type nwTimeoutFatalLogger struct{}
+
+func (l *nwTimeoutFatalLogger) Printf(format string, v ...interface{}) {
+	dieOnNetworkTimeout(v...)
+	log.Printf(format, v...)
+}
+
+func (l *nwTimeoutFatalLogger) Println(v ...interface{}) {
+	dieOnNetworkTimeout(v...)
+	log.Println(v...)
+}
+
 func initPaths() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -83,6 +107,12 @@ func fetchStats() (*stats, error) {
 		return nil, err
 	}
 	defer c.Logout()
+
+	c.Timeout = imapTimeout
+
+	// HACK: go-imap does not always return timeout error to callers
+	// However it reports such erros to custom logger. This logger aborts on network timeouts
+	c.ErrorLog = &nwTimeoutFatalLogger{}
 
 	if err := c.Login(*userArg, passwd); err != nil {
 		return nil, err
