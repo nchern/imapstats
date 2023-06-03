@@ -110,8 +110,10 @@ func fetchStats() (*stats, error) {
 
 	c.Timeout = imapTimeout
 
-	// HACK: go-imap does not always return timeout error to callers
-	// However it reports such erros to custom logger. This logger aborts on network timeouts
+	// HACK: go-imap tries to be smart and handle timeouts itself.
+	// Wich does not work well for cli usecase.
+	// However it reports such erros to custom logger. This logger simply
+	// aborts on network timeouts for now.
 	c.ErrorLog = &nwTimeoutFatalLogger{}
 
 	if err := c.Login(*userArg, passwd); err != nil {
