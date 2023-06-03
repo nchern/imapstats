@@ -29,24 +29,21 @@ const (
 )
 
 var (
-	addrArg = flag.String("addr", "imap.gmail.com:993", "IMAP user")
+	appHomeDir string
+	cacheDir   string
 
-	userArg     = flag.String("user", "", "IMAP user")
-	passwordArg = flag.String("pass", "", "IMAP password")
-
-	mboxArg = flag.String("mailbox", "INBOX", "mailbox on the server")
-
-	quietArg = flag.Bool("q", false, "If set, does not output stats on stdin. Can be used in background jobs to update cache")
-
+	// CLI args
+	addrArg       = flag.String("addr", "imap.gmail.com:993", "IMAP user")
+	userArg       = flag.String("user", "", "IMAP user")
+	passwordArg   = flag.String("pass", "", "IMAP password")
+	mboxArg       = flag.String("mailbox", "INBOX", "mailbox on the server")
+	quietArg      = flag.Bool("q", false, "If set, does not output stats on stdin. Can be used in background jobs to update cache")
 	writeCacheArg = flag.Bool("write-cache", false, "if true writes to cache")
 	readCacheArg  = flag.Bool("read-cache", false, "if true reads from cache")
 	ttlArg        = flag.String(
 		"ttl",
 		"",
 		"sets cache ttl. By default no ttl is set. Default unit is seconds, hours and minues are also supported e.g. 2h; 35m")
-
-	appHomeDir string
-	cacheDir   string
 )
 
 type stats struct {
