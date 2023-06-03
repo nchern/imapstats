@@ -16,10 +16,13 @@ import (
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	appName = "imapstats"
+
+	configName = "config.yaml"
 
 	defaultDirPerms = 0700
 
@@ -40,19 +43,56 @@ var (
 	quietArg      = flag.Bool("q", false, "If set, does not output stats on stdin. Can be used in background jobs to update cache")
 	writeCacheArg = flag.Bool("write-cache", false, "if true writes to cache")
 	readCacheArg  = flag.Bool("read-cache", false, "if true reads from cache")
-	ttlArg        = flag.String(
-		"ttl",
-		"",
+	ttlArg        = flag.String("ttl", "",
 		"sets cache ttl. By default no ttl is set. Default unit is seconds, hours and minues are also supported e.g. 2h; 35m")
 )
 
-type stats struct {
-	UnseenCount int `json:"unseen_count"`
+type stats map[string]int
+
+type criteriaCfg struct {
+	Seen    bool              `yaml:"seen"`
+	Body    []string          `yaml:"body"`
+	Headers map[string]string `yaml:"headers"`
+}
+
+func (cr *criteriaCfg) toIMAP() *imap.SearchCriteria {
+	res := imap.NewSearchCriteria()
+	if !cr.Seen {
+		res.WithoutFlags = []string{imap.SeenFlag}
+	}
+	res.Body = cr.Body
+	for k, v := range cr.Headers {
+		res.Header.Add(k, v)
+	}
+	return res
+}
+
+type statsConfig map[string]*criteriaCfg
+
+type config struct {
+	Accounts map[string]map[string]statsConfig `yaml:"accounts"`
+}
+
+func (c *config) getStatsCfg(user string, mailBox string) statsConfig {
+	// unseen count added by default
+	defaultCfg := statsConfig{"unseen_count": &criteriaCfg{}}
+
+	mboxes := c.Accounts[user]
+	if mboxes == nil {
+		return defaultCfg
+	}
+	cfg := mboxes[mailBox]
+	if cfg == nil {
+		return defaultCfg
+	}
+	if cfg["unseen_count"] == nil {
+		cfg["unseen_count"] = &criteriaCfg{}
+	}
+	return cfg
 }
 
 func init() {
 	log.SetFlags(0)
-	flag.Parse()
 
 	must(initPaths())
 }
@@ -118,7 +158,7 @@ func dialAndLogin(passwd string) (*client.Client, error) {
 	return c, nil
 }
 
-func fetchStats() (*stats, error) {
+func fetchStats(cfg *config) (stats, error) {
 	passwd, err := readPassword()
 	if err != nil {
 		return nil, err
@@ -129,22 +169,43 @@ func fetchStats() (*stats, error) {
 	}
 	defer c.Logout()
 
-	criteria := imap.NewSearchCriteria()
-	criteria.WithoutFlags = []string{imap.SeenFlag}
-	ids, err := c.Search(criteria)
+	st := stats{}
+	// TODO: explore a possibility to run in parallel - will be useful if many stats to be collected
+	for k, cr := range cfg.getStatsCfg(*userArg, *mboxArg) {
+		ids, err := c.Search(cr.toIMAP())
+		if err != nil {
+			return nil, err
+		}
+		st[k] = len(ids)
+	}
+	return st, nil
+}
+
+func fetchConfig(path string) (*config, error) {
+	var cfg config
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return &cfg, nil
+		}
 		return nil, err
 	}
-	return &stats{UnseenCount: len(ids)}, nil
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 func main() {
+	flag.Parse()
 	if *readCacheArg {
 		must(readFromCache())
 		return
 	}
 
-	st, err := fetchStats()
+	cfg, err := fetchConfig(filepath.Join(appHomeDir, configName))
+	dieIf(err)
+	st, err := fetchStats(cfg)
 	dieIf(err)
 
 	must(writeStats(st))
@@ -181,7 +242,7 @@ func readFromCache() error {
 	return err
 }
 
-func writeStats(st *stats) error {
+func writeStats(st stats) error {
 	var w io.Writer = os.Stdout
 	if *writeCacheArg {
 		f, err := os.Create(cacheFilename())

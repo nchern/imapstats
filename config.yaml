@@ -1,0 +1,13 @@
+# general config section
+
+# accounts:
+#   foo@bar.com:
+#     INBOX:
+#       # unseen_count: - default stats, always reported
+#       important_count:
+#         headers:
+#           From: important@localhost.org
+#           Subject: important
+#         body:
+#           - foo
+#           - bar
