@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/stretchr/testify/assert"
@@ -61,5 +62,27 @@ func Test_criteriaCfgToIMAP(t *testing.T) {
 	expected = imap.NewSearchCriteria()
 	expected.WithoutFlags = []string{imap.SeenFlag}
 	assert.Equal(t, expected, actual.toIMAP())
+
+}
+
+func Test_cacheTTL(t *testing.T) {
+	assert.Equal(t, ttlInfinite, cacheTTL())
+
+	var tests = []struct {
+		expected time.Duration
+		given    string
+	}{
+		{81 * time.Second, "81"},
+		{10 * time.Second, "10s"},
+		{15 * time.Minute, "15m"},
+		{33 * time.Hour, "33h"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.given, func(t *testing.T) {
+			*ttlArg = tt.given
+			assert.Equal(t, tt.expected, cacheTTL())
+		})
+	}
 
 }

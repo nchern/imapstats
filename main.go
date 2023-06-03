@@ -274,21 +274,20 @@ func must(err error) {
 }
 
 func cacheTTL() time.Duration {
-	units := map[byte]time.Duration{
-		's': time.Second,
-		'm': time.Minute,
-		'h': time.Hour,
+	units := map[string]time.Duration{
+		"s": time.Second,
+		"m": time.Minute,
+		"h": time.Hour,
 	}
 	val := *ttlArg
 	if val == "" {
 		return ttlInfinite
 	}
-	l := len(val)
 	unit := time.Second
 	for k, v := range units {
-		if val[l-1] == k {
+		if strings.HasSuffix(val, k) {
 			unit = v
-			val = val[0 : l-1]
+			val = strings.TrimSuffix(val, k)
 			break
 		}
 	}
@@ -296,6 +295,5 @@ func cacheTTL() time.Duration {
 	if err != nil {
 		return ttlInfinite
 	}
-
 	return time.Duration(ttl) * unit
 }
