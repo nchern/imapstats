@@ -94,16 +94,11 @@ func initPaths() error {
 	return nil
 }
 
-func fetchStats() (*stats, error) {
-	passwd, err := readPassword()
-	if err != nil {
-		return nil, err
-	}
+func dialAndLogin(passwd string) (*client.Client, error) {
 	c, err := client.DialTLS(*addrArg, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Logout()
 
 	c.Timeout = imapTimeout
 
@@ -120,6 +115,19 @@ func fetchStats() (*stats, error) {
 	if _, err = c.Select(*mboxArg, false); err != nil {
 		return nil, err
 	}
+	return c, nil
+}
+
+func fetchStats() (*stats, error) {
+	passwd, err := readPassword()
+	if err != nil {
+		return nil, err
+	}
+	c, err := dialAndLogin(passwd)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Logout()
 
 	criteria := imap.NewSearchCriteria()
 	criteria.WithoutFlags = []string{imap.SeenFlag}
