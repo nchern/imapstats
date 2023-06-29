@@ -3,15 +3,17 @@ accounts:
   foo@bar.com:
     INBOX:
       important_count:
-        # unseen: true
         headers:
           From: boss@bar.com
-      notification_count:
-        # unseen: true
-        headers:
-          Subject: "Notification:"
         body:
           - foo
           - bar
-      seen_count:
-        seen: true
+        or:
+          -
+            headers:
+              Subject: blah
+            body:
+              - fuzz
+          -
+            headers:
+              Subject: foo

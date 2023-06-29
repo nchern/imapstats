@@ -1,0 +1,9 @@
+# Incorrect OR config: only one criterion
+accounts:
+  foo@bar.com:
+    INBOX:
+      important_count:
+        or:
+          -
+            headers:
+              Subject: foo

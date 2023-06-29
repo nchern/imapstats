@@ -53,6 +53,8 @@ type criteriaCfg struct {
 	Seen    bool              `yaml:"seen"`
 	Body    []string          `yaml:"body"`
 	Headers map[string]string `yaml:"headers"`
+
+	Or []criteriaCfg `yaml:"or"`
 }
 
 func (cr *criteriaCfg) toIMAP() *imap.SearchCriteria {
@@ -64,7 +66,29 @@ func (cr *criteriaCfg) toIMAP() *imap.SearchCriteria {
 	for k, v := range cr.Headers {
 		res.Header.Add(k, v)
 	}
+	mkORclause(res, cr.Or)
+
 	return res
+}
+
+func mkORclause(sc *imap.SearchCriteria, or []criteriaCfg) {
+	if len(or) == 0 {
+		return
+	}
+	if len(or) == 1 {
+		panic("OR criteria can't have 1 criterion")
+	}
+	if len(or) == 2 {
+		sc.Or = append(sc.Or, [2]*imap.SearchCriteria{})
+		sc.Or[0][0] = or[0].toIMAP()
+		sc.Or[0][1] = or[1].toIMAP()
+		return
+	}
+	sc.Or = append(sc.Or, [2]*imap.SearchCriteria{})
+	sc.Or[0][0] = or[0].toIMAP()
+	sc.Or[0][1] = imap.NewSearchCriteria()
+
+	mkORclause(sc.Or[0][1], or[1:])
 }
 
 type statsConfig map[string]*criteriaCfg
@@ -168,7 +192,6 @@ func fetchStats(cfg *config) (stats, error) {
 		return nil, err
 	}
 	defer c.Logout()
-
 	st := stats{}
 	// TODO: explore a possibility to run in parallel - will be useful if many stats to be collected
 	for k, cr := range cfg.getStatsCfg(*userArg, *mboxArg) {
@@ -192,6 +215,15 @@ func fetchConfig(path string) (*config, error) {
 	}
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return nil, err
+	}
+	for _, acc := range cfg.Accounts {
+		for _, cfg := range acc {
+			for _, cr := range cfg {
+				if len(cr.Or) == 1 {
+					return nil, fmt.Errorf("bad config: OR criteria must have 2 clauses")
+				}
+			}
+		}
 	}
 	return &cfg, nil
 }
