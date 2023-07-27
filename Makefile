@@ -4,7 +4,7 @@ build: vet
 
 .PHONY: install
 install: test
-	go get ./...
+	go install ./...
 
 .PHONY: lint
 lint:
