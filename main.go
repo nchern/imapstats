@@ -29,6 +29,8 @@ const (
 	ttlInfinite time.Duration = -1
 
 	imapTimeout = 10 * time.Second
+
+	maxMailFetchCount = 10
 )
 
 var (
@@ -47,7 +49,12 @@ var (
 		"sets cache ttl. By default no ttl is set. Default unit is seconds, hours and minues are also supported e.g. 2h; 35m")
 )
 
-type stats map[string]int
+type letter struct {
+	Date    string `json:"date"`
+	Subject string `json:"subject"`
+}
+
+type stats map[string]interface{}
 
 type criteriaCfg struct {
 	Seen    bool              `yaml:"seen"`
@@ -55,6 +62,8 @@ type criteriaCfg struct {
 	Headers map[string]string `yaml:"headers"`
 
 	Or []criteriaCfg `yaml:"or"`
+
+	Fetch bool `yaml:"fetch"`
 }
 
 func (cr *criteriaCfg) toIMAP() *imap.SearchCriteria {
@@ -95,6 +104,19 @@ type statsConfig map[string]*criteriaCfg
 
 type config struct {
 	Accounts map[string]map[string]statsConfig `yaml:"accounts"`
+}
+
+func (c *config) validate() error {
+	for _, acc := range c.Accounts {
+		for _, cfg := range acc {
+			for _, cr := range cfg {
+				if len(cr.Or) == 1 {
+					return fmt.Errorf("bad config: OR criteria must have 2 clauses")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (c *config) getStatsCfg(user string, mailBox string) statsConfig {
@@ -175,11 +197,37 @@ func dialAndLogin(passwd string) (*client.Client, error) {
 	if err := c.Login(*userArg, passwd); err != nil {
 		return nil, err
 	}
-
 	if _, err = c.Select(*mboxArg, false); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func fetchMails(c *client.Client, name string, ids []uint32) ([]*imap.Message, error) {
+	if len(ids) < 1 {
+		return nil, nil
+	}
+	if len(ids) > maxMailFetchCount {
+		log.Printf("WARN %s: found %d mails; will fetch %d ",
+			name, len(ids), maxMailFetchCount)
+		ids = ids[0:maxMailFetchCount]
+	}
+	set := &imap.SeqSet{}
+	set.AddNum(ids...)
+	done := make(chan error, 1)
+	msgChan := make(chan *imap.Message, 2)
+	messages := make([]*imap.Message, 0, len(ids))
+	go func() {
+		done <- c.Fetch(set, []imap.FetchItem{imap.FetchEnvelope}, msgChan)
+	}()
+
+	for msg := range msgChan {
+		messages = append(messages, msg)
+	}
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("%w %T", err, err)
+	}
+	return messages, nil
 }
 
 func fetchStats(cfg *config) (stats, error) {
@@ -193,6 +241,7 @@ func fetchStats(cfg *config) (stats, error) {
 	}
 	defer c.Logout()
 	st := stats{}
+
 	// TODO: explore a possibility to run in parallel - will be useful if many stats to be collected
 	for k, cr := range cfg.getStatsCfg(*userArg, *mboxArg) {
 		ids, err := c.Search(cr.toIMAP())
@@ -200,6 +249,21 @@ func fetchStats(cfg *config) (stats, error) {
 			return nil, err
 		}
 		st[k] = len(ids)
+		if cr.Fetch {
+			messages, err := fetchMails(c, k, ids)
+			if err != nil {
+				return nil, err
+			}
+			letters := []*letter{}
+			for _, m := range messages {
+				letters = append(letters,
+					&letter{
+						Date:    m.Envelope.Date.Format(time.RFC3339),
+						Subject: m.Envelope.Subject,
+					})
+			}
+			st[k+"_messages"] = letters
+		}
 	}
 	return st, nil
 }
@@ -216,14 +280,8 @@ func fetchConfig(path string) (*config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return nil, err
 	}
-	for _, acc := range cfg.Accounts {
-		for _, cfg := range acc {
-			for _, cr := range cfg {
-				if len(cr.Or) == 1 {
-					return nil, fmt.Errorf("bad config: OR criteria must have 2 clauses")
-				}
-			}
-		}
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
 }
@@ -301,9 +359,7 @@ func dieIf(err error) {
 	}
 }
 
-func must(err error) {
-	dieIf(err)
-}
+func must(err error) { dieIf(err) }
 
 func cacheTTL() time.Duration {
 	units := map[string]time.Duration{

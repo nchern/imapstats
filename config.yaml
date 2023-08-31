@@ -11,3 +11,4 @@
 #         body:
 #           - foo
 #           - bar
+#         fetch: true
