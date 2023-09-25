@@ -28,9 +28,12 @@ const (
 
 	ttlInfinite time.Duration = -1
 
-	imapTimeout = 10 * time.Second
+	imapTimeout = 20 * time.Second
 
 	maxMailFetchCount = 10
+
+	// /usr/include/sysexits.h:101: EX_UNAVAILABLE - service unavailable
+	exitUnavailable = 69
 )
 
 var (
@@ -145,9 +148,13 @@ func init() {
 
 func dieOnNetworkTimeout(v ...interface{}) {
 	for _, it := range v {
-		err, ok := it.(*net.OpError)
-		if ok && err.Timeout() {
-			dieIf(err)
+		if it == nil {
+			continue
+		}
+		err, ok := it.(error)
+		if ok && os.IsTimeout(err) {
+			log.Printf("fatal: %T %s", err, err)
+			os.Exit(exitUnavailable)
 		}
 	}
 }
@@ -181,12 +188,11 @@ func initPaths() error {
 }
 
 func dialAndLogin(passwd string) (*client.Client, error) {
-	c, err := client.DialTLS(*addrArg, nil)
+	dialer := &net.Dialer{Timeout: imapTimeout}
+	c, err := client.DialWithDialerTLS(dialer, *addrArg, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	c.Timeout = imapTimeout
 
 	// HACK: go-imap tries to be smart and handle timeouts itself.
 	// Wich does not work well for cli usecase.
@@ -296,6 +302,7 @@ func main() {
 	cfg, err := fetchConfig(filepath.Join(appHomeDir, configName))
 	dieIf(err)
 	st, err := fetchStats(cfg)
+	dieOnNetworkTimeout(err)
 	dieIf(err)
 
 	must(writeStats(st))
@@ -355,7 +362,7 @@ func cacheFilename() string {
 
 func dieIf(err error) {
 	if err != nil {
-		log.Fatal("fatal: ", err)
+		log.Fatalf("fatal: %T %s", err, err)
 	}
 }
 
