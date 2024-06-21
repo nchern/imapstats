@@ -146,15 +146,24 @@ func init() {
 	must(initPaths())
 }
 
-func dieOnNetworkTimeout(v ...interface{}) {
-	for _, it := range v {
-		if it == nil {
-			continue
+func errorToExitCode(err error) int {
+	if os.IsTimeout(err) {
+		return exitUnavailable
+	}
+	if opErr, ok := err.(*net.OpError); ok {
+		if opErr.Temporary() || opErr.Timeout() {
+			return exitUnavailable
 		}
-		err, ok := it.(error)
-		if ok && os.IsTimeout(err) {
-			log.Printf("fatal: %T %s", err, err)
-			os.Exit(exitUnavailable)
+	}
+	return 1
+}
+
+func dieOnNetError(v ...interface{}) {
+	for _, it := range v {
+		switch err := it.(type) {
+		case error:
+			log.Printf("fatal: dieOnNetError: %T %s", err, err)
+			os.Exit(errorToExitCode(err))
 		}
 	}
 }
@@ -162,12 +171,12 @@ func dieOnNetworkTimeout(v ...interface{}) {
 type nwTimeoutFatalLogger struct{}
 
 func (l *nwTimeoutFatalLogger) Printf(format string, v ...interface{}) {
-	dieOnNetworkTimeout(v...)
+	dieOnNetError(v...)
 	log.Printf(format, v...)
 }
 
 func (l *nwTimeoutFatalLogger) Println(v ...interface{}) {
-	dieOnNetworkTimeout(v...)
+	dieOnNetError(v...)
 	log.Println(v...)
 }
 
@@ -230,6 +239,7 @@ func fetchMails(c *client.Client, name string, ids []uint32) ([]*imap.Message, e
 	for msg := range msgChan {
 		messages = append(messages, msg)
 	}
+	// TODO: add timeout channel here. Otherwise there is a risk of infinite blocking
 	if err := <-done; err != nil {
 		return nil, fmt.Errorf("%w %T", err, err)
 	}
@@ -302,7 +312,7 @@ func main() {
 	cfg, err := fetchConfig(filepath.Join(appHomeDir, configName))
 	dieIf(err)
 	st, err := fetchStats(cfg)
-	dieOnNetworkTimeout(err)
+	dieOnNetError(err)
 	dieIf(err)
 
 	must(writeStats(st))
